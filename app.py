@@ -21,6 +21,11 @@ if "framework" not in st.session_state:
 # --- 侧边栏：配置参数 ---
 with st.sidebar:
     st.header("1. 配置中心")
+    # 尝试从 Streamlit 保险箱读取你的专属 Key，如果没找到，再显示输入框
+try:
+    api_key = st.secrets["my_deepseek_key"]
+    st.success("✅ 已自动加载内部测试 API Key")
+except:
     api_key = st.text_input("输入 DeepSeek API Key", type="password")
     base_url = st.text_input("API 代理地址 (默认 DeepSeek)", value="https://api.deepseek.com")
     model_name = st.selectbox("选择模型", ["deepseek-chat", "deepseek-reasoner"])
