@@ -1,6 +1,7 @@
 import streamlit as st
 import fitz  # PyMuPDF
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+# 注意这里：使用了最新的 langchain_text_splitters 路径
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -25,13 +26,11 @@ with st.sidebar:
     model_name = st.selectbox("选择模型", ["deepseek-chat", "deepseek-reasoner"])
     st.info("提示：首次运行本地向量模型会占用几秒钟下载，后续即可秒开。")
 
-
 # --- 核心功能函数 ---
-@st.cache_resource  # 缓存向量模型，避免重复加载
+@st.cache_resource # 缓存向量模型，避免重复加载
 def load_embedding_model():
     # 使用轻量级开源模型替代 API
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
 
 def process_pdf(file):
     # 1. 解析 PDF 获取全文
@@ -39,17 +38,16 @@ def process_pdf(file):
     text = ""
     for page in doc:
         text += page.get_text()
-
+    
     # 2. 文本切片
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = text_splitter.split_text(text)
-
+    
     # 3. 建立向量数据库 (使用本地免费模型)
     embeddings = load_embedding_model()
     vector_db = FAISS.from_texts(chunks, embeddings)
-
-    return vector_db, text[:10000]
-
+    
+    return vector_db, text[:10000] 
 
 # --- UI 交互界面 ---
 uploaded_file = st.file_uploader("上传书籍 PDF (最大支持 50MB)", type="pdf")
@@ -60,11 +58,11 @@ if uploaded_file and api_key:
             try:
                 db, preview_text = process_pdf(uploaded_file)
                 st.session_state.vector_db = db
-
+                
                 # 生成初始框架
                 llm = ChatOpenAI(
-                    model=model_name,
-                    api_key=api_key,
+                    model=model_name, 
+                    api_key=api_key, 
                     base_url=base_url,
                     max_tokens=4000
                 )
@@ -96,15 +94,15 @@ if uploaded_file and api_key:
 # --- 结果展示与提问区 ---
 if st.session_state.framework:
     col1, col2 = st.columns([1.5, 1])
-
+    
     with col1:
         st.subheader("📋 全书知识框架与习题")
         st.markdown(st.session_state.framework)
-
+        
     with col2:
         st.subheader("💬 细节追问")
         user_query = st.text_input("输入你想深入了解的概念：")
-
+        
         if user_query:
             with st.spinner("正在全书中精准检索原文..."):
                 qa_chain = RetrievalQA.from_chain_type(
