@@ -1,11 +1,10 @@
 import streamlit as st
 import fitz  # PyMuPDF
-# 注意这里：使用了最新的 langchain_text_splitters 路径
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.chains import RetrievalQA
+# 注意：我们彻底删掉了那个容易报错的 RetrievalQA 模块！
 
 # --- 页面设置 ---
 st.set_page_config(page_title="AI 全书深度解析器", layout="wide")
@@ -22,11 +21,12 @@ if "framework" not in st.session_state:
 with st.sidebar:
     st.header("1. 配置中心")
     # 尝试从 Streamlit 保险箱读取你的专属 Key，如果没找到，再显示输入框
-try:
-    api_key = st.secrets["my_deepseek_key"]
-    st.success("✅ 已自动加载内部测试 API Key")
-except:
-    api_key = st.text_input("输入 DeepSeek API Key", type="password")
+    try:
+        api_key = st.secrets["my_deepseek_key"]
+        st.success("✅ 已自动加载内部测试 API Key")
+    except:
+        api_key = st.text_input("输入 DeepSeek API Key", type="password")
+        
     base_url = st.text_input("API 代理地址 (默认 DeepSeek)", value="https://api.deepseek.com")
     model_name = st.selectbox("选择模型", ["deepseek-chat", "deepseek-reasoner"])
     st.info("提示：首次运行本地向量模型会占用几秒钟下载，后续即可秒开。")
@@ -34,11 +34,10 @@ except:
 # --- 核心功能函数 ---
 @st.cache_resource # 缓存向量模型，避免重复加载
 def load_embedding_model():
-    # 使用轻量级开源模型替代 API
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
 def process_pdf(file):
-    # 1. 解析 PDF 获取全文
+    # 1. 解析 PDF
     doc = fitz.open(stream=file.read(), filetype="pdf")
     text = ""
     for page in doc:
@@ -48,7 +47,7 @@ def process_pdf(file):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
     chunks = text_splitter.split_text(text)
     
-    # 3. 建立向量数据库 (使用本地免费模型)
+    # 3. 建立向量数据库
     embeddings = load_embedding_model()
     vector_db = FAISS.from_texts(chunks, embeddings)
     
@@ -110,10 +109,20 @@ if st.session_state.framework:
         
         if user_query:
             with st.spinner("正在全书中精准检索原文..."):
-                qa_chain = RetrievalQA.from_chain_type(
-                    llm=ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url),
-                    chain_type="stuff",
-                    retriever=st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
-                )
-                answer = qa_chain.invoke({"query": user_query})["result"]
-                st.info(f"**DeepSeek 深度解答：**\n\n{answer}")
+                try:
+                    # 💥 重点修改：弃用容易报错的旧模块，改为最稳定直接的 3 步查询法 💥
+                    
+                    # 1. 检索：直接从全书切片中找出最相关的 3 段原文
+                    docs = st.session_state.vector_db.similarity_search(user_query, k=3)
+                    context = "\n".join([doc.page_content for doc in docs])
+                    
+                    # 2. 组装问题：把原文和用户问题一起打包
+                    ask_prompt = f"请作为一位教学助手，基于以下【参考原文】回答问题。如果原文没提到，请结合你的知识解答，但要说明原文未提及。\n\n【参考原文】\n{context}\n\n【用户问题】\n{user_query}"
+                    
+                    # 3. 发送给 DeepSeek 并输出结果
+                    llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
+                    answer = llm.invoke(ask_prompt).content
+                    st.info(f"**DeepSeek 深度解答：**\n\n{answer}")
+                    
+                except Exception as e:
+                    st.error(f"检索出错啦：{e}")
