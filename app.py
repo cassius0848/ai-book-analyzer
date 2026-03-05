@@ -4,12 +4,11 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
-# 注意：我们彻底删掉了那个容易报错的 RetrievalQA 模块！
 
 # --- 页面设置 ---
 st.set_page_config(page_title="AI 全书深度解析器", layout="wide")
-st.title("📖 知识点全量提取助手 (DeepSeek 专版)")
-st.caption("上传 PDF，自动提取完整框架。基于 DeepSeek 大模型与本地免费向量引擎。")
+st.title("📖 知识点全量提取助手 (企业级大文件架构)")
+st.caption("采用“分而治之”架构：左侧生成全局目录，右侧按需提取详细定义与习题。突破字数极限！")
 
 # --- 初始化 Session State ---
 if "vector_db" not in st.session_state:
@@ -20,109 +19,101 @@ if "framework" not in st.session_state:
 # --- 侧边栏：配置参数 ---
 with st.sidebar:
     st.header("1. 配置中心")
-    # 尝试从 Streamlit 保险箱读取你的专属 Key，如果没找到，再显示输入框
     try:
         api_key = st.secrets["my_deepseek_key"]
         st.success("✅ 已自动加载内部测试 API Key")
     except:
         api_key = st.text_input("输入 DeepSeek API Key", type="password")
         
-    base_url = st.text_input("API 代理地址 (默认 DeepSeek)", value="https://api.deepseek.com")
+    base_url = st.text_input("API 代理地址", value="https://api.deepseek.com")
     model_name = st.selectbox("选择模型", ["deepseek-chat", "deepseek-reasoner"])
-    st.info("提示：首次运行本地向量模型会占用几秒钟下载，后续即可秒开。")
 
 # --- 核心功能函数 ---
-@st.cache_resource # 缓存向量模型，避免重复加载
+@st.cache_resource 
 def load_embedding_model():
     return HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
 
-def process_pdf(file):
-    # 1. 解析 PDF
+def process_pdf_map_reduce(file):
     doc = fitz.open(stream=file.read(), filetype="pdf")
-    text = ""
-    for page in doc:
-        text += page.get_text()
+    full_text = ""
+    toc_text = "" # 专门用来装前 15 页的内容，用于提取目录
     
-    # 2. 文本切片
+    for i, page in enumerate(doc):
+        page_content = page.get_text()
+        full_text += page_content
+        if i < 15: # 大多数书的目录都在前 15 页
+            toc_text += page_content
+            
+    # 把整本书切成小块存入数据库 (为右侧的详细提取做准备)
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
-    chunks = text_splitter.split_text(text)
+    chunks = text_splitter.split_text(full_text)
     
-    # 3. 建立向量数据库
     embeddings = load_embedding_model()
     vector_db = FAISS.from_texts(chunks, embeddings)
     
-    return vector_db, text[:10000] 
+    return vector_db, toc_text
 
 # --- UI 交互界面 ---
-uploaded_file = st.file_uploader("上传书籍 PDF (最大支持 50MB)", type="pdf")
+uploaded_file = st.file_uploader("上传书籍 PDF (支持 30MB+ 大文件)", type="pdf")
 
 if uploaded_file and api_key:
     if st.session_state.vector_db is None:
-        with st.spinner("正在深度扫描全书内容并构建索引，请稍候..."):
+        with st.spinner("第一步：正在切片整本书并提取全局目录，请稍候..."):
             try:
-                db, preview_text = process_pdf(uploaded_file)
+                db, toc_text = process_pdf_map_reduce(uploaded_file)
                 st.session_state.vector_db = db
                 
-                # 生成初始框架
-                llm = ChatOpenAI(
-                    model=model_name, 
-                    api_key=api_key, 
-                    base_url=base_url,
-                    max_tokens=4000
-                )
-                prompt = f"""你是一位拥有20年经验的资深教研专家。请仔细阅读以下文本片段，为你提炼一份系统化的学习指南。
-
-【严格遵守的规则】：
-1. 绝对忠于原文，拒绝任何省略，严格按【输出格式模板】输出 Markdown 格式。
-
-【任务要求】：
-1. 知识点框架：提取文本中涵盖的所有核心层级结构。
-2. 准确定义：为框架中的重要专业名词提供精准、易懂的定义。
-3. 实战练习：针对每一个核心概念，设计 2 道练习题（1道基础，1道思考）。
-
-【输出格式模板】：
-# 📚 全书核心知识框架
-## [章节名称]
-### 核心知识点：[知识点名称]
-* **📌 准确定义**：[提取的定义]
-* **📝 配套练习**：...
-
-文本片段如下：
-{preview_text}
-"""
-                st.session_state.framework = llm.invoke(prompt).content
+                # 第一步 (Map): 只让 AI 读取前 15 页，生成全局知识树
+                llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
+                prompt_toc = f"""你是一个图书目录整理专家。请阅读以下书籍开头的文本，提取出这本的【全局目录框架/知识树】。
+只输出章节的层级结构（例如：第一章 XX，1.1 XX），不要输出任何正文解释，不要省略任何章节。
+文本：{toc_text}"""
+                
+                st.session_state.framework = llm.invoke(prompt_toc).content
                 st.rerun()
             except Exception as e:
-                st.error(f"处理出错啦，请检查代码或网络：{e}")
+                st.error(f"处理出错啦：{e}")
 
-# --- 结果展示与提问区 ---
+# --- 结果展示与提问区 (分而治之) ---
 if st.session_state.framework:
-    col1, col2 = st.columns([1.5, 1])
+    col1, col2 = st.columns([1, 1.5]) # 调整左右比例
     
     with col1:
-        st.subheader("📋 全书知识框架与习题")
+        st.subheader("🌳 第一步：全局目录树")
+        st.info("AI 已扫描全书结构。请查看下方目录，并在右侧输入你想深度学习的章节。")
         st.markdown(st.session_state.framework)
         
     with col2:
-        st.subheader("💬 细节追问")
-        user_query = st.text_input("输入你想深入了解的概念：")
+        st.subheader("🎯 第二步：按需深度提取 (点读机)")
+        chapter_query = st.text_input("请输入你想详细学习的部分（例如：第一章、或者某个具体小节）：")
         
-        if user_query:
-            with st.spinner("正在全书中精准检索原文..."):
-                try:
-                    # 💥 重点修改：弃用容易报错的旧模块，改为最稳定直接的 3 步查询法 💥
-                    
-                    # 1. 检索：直接从全书切片中找出最相关的 3 段原文
-                    docs = st.session_state.vector_db.similarity_search(user_query, k=3)
-                    context = "\n".join([doc.page_content for doc in docs])
-                    
-                    # 2. 组装问题：把原文和用户问题一起打包
-                    ask_prompt = f"请作为一位教学助手，基于以下【参考原文】回答问题。如果原文没提到，请结合你的知识解答，但要说明原文未提及。\n\n【参考原文】\n{context}\n\n【用户问题】\n{user_query}"
-                    
-                    # 3. 发送给 DeepSeek 并输出结果
-                    llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
-                    answer = llm.invoke(ask_prompt).content
-                    st.info(f"**DeepSeek 深度解答：**\n\n{answer}")
-                    
-                except Exception as e:
-                    st.error(f"检索出错啦：{e}")
+        if st.button("🚀 生成该部分的详细定义与习题"):
+            if chapter_query:
+                with st.spinner(f"正在全书中精准抓取【{chapter_query}】的所有细节，这可能需要十几秒..."):
+                    try:
+                        # 1. 检索：针对这一章，从几百页的书里抓取最相关的 8 个大文本块
+                        docs = st.session_state.vector_db.similarity_search(chapter_query, k=8)
+                        context = "\n".join([doc.page_content for doc in docs])
+                        
+                        # 2. 第二步 (Reduce): 专注处理这一章，绝不省略！
+                        prompt_detail = f"""你是一位严谨的教研专家。用户现在想深度学习【{chapter_query}】。
+请基于以下我为你从原书中找出的【参考原文片段】，生成一份毫无遗漏的学习指南。
+
+【任务要求】：
+1. 准确定义：提取这段原文中出现的所有重要专业名词，并给出精准定义。
+2. 实战练习：针对这些核心概念，设计 2 道练习题（1道基础题，1道深度思考题）。
+3. 绝对忠于原文，如果原文没提，请直接说明。
+
+【参考原文片段】：
+{context}
+"""
+                        llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
+                        answer = llm.invoke(prompt_detail).content
+                        
+                        st.success(f"✅ 【{chapter_query}】深度提炼完成！")
+                        st.markdown(answer)
+                        
+                    except Exception as e:
+                        st.error(f"提取出错啦：{e}")
+            else:
+                st.warning("请先在上方输入框填写章节名称哦！")
