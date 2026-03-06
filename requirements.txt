@@ -1,9 +1,9 @@
 streamlit
-pymupdf
-langchain
-langchain-openai
-langchain-community
-langchain-huggingface
+PyMuPDF
 langchain-text-splitters
+langchain-community
+langchain-openai
+langchain-huggingface
 faiss-cpu
 sentence-transformers
+plotly
