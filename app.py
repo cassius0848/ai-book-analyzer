@@ -6,9 +6,9 @@ from langchain_openai import ChatOpenAI
 from langchain_huggingface import HuggingFaceEmbeddings
 
 # --- 页面设置 ---
-st.set_page_config(page_title="AI 全书深度解析器", layout="wide")
-st.title("📖 知识点全量提取助手 (企业级大文件架构)")
-st.caption("采用“分而治之”架构：左侧生成全局目录，右侧按需提取详细定义与习题。突破字数极限！")
+st.set_page_config(page_title="AI 文件整理解析器", layout="wide")
+st.title("📖 知识点全量提取助手 (大文件架构)")
+st.caption("采用“分而治之”架构：左侧生成全局目录，右侧按需提取详细定义与习题")
 
 # --- 初始化 Session State ---
 if "vector_db" not in st.session_state:
@@ -65,7 +65,7 @@ if uploaded_file and api_key:
                 
                 # 第一步 (Map): 只让 AI 读取前 15 页，生成全局知识树
                 llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url)
-                prompt_toc = f"""你是一个图书目录整理专家。请阅读以下书籍开头的文本，提取出这本的【全局目录框架/知识树】。
+                prompt_toc = f"""你是一个图书目录整理专家。请阅读以下书籍开头的文本，只需要整理目录，提取出这本的【全局目录框架/知识树】。
 只输出章节的层级结构（例如：第一章 XX，1.1 XX），不要输出任何正文解释，不要省略任何章节。
 文本：{toc_text}"""
                 
@@ -80,7 +80,7 @@ if st.session_state.framework:
     
     with col1:
         st.subheader("🌳 第一步：全局目录树")
-        st.info("AI 已扫描全书结构。请查看下方目录，并在右侧输入你想深度学习的章节。")
+        st.info("已扫描全书结构。请查看下方目录，并在右侧输入你想深入的章节。")
         st.markdown(st.session_state.framework)
         
     with col2:
@@ -96,13 +96,15 @@ if st.session_state.framework:
                         context = "\n".join([doc.page_content for doc in docs])
                         
                         # 2. 第二步 (Reduce): 专注处理这一章，绝不省略！
-                        prompt_detail = f"""你是一位严谨的教研专家。用户现在想深度学习【{chapter_query}】。
-请基于以下我为你从原书中找出的【参考原文片段】，生成一份毫无遗漏的学习指南。
+                        prompt_detail = f"""你是一位严谨的教研专家。用户现在是初学者，想深度学习【{chapter_query}】。
+请基于以下我为你从原书中找出的【参考原文片段】，生成一份毫无遗漏的学习框架结构。
 
 【任务要求】：
-1. 准确定义：提取这段原文中出现的所有重要专业名词，并给出精准定义。
-2. 实战练习：针对这些核心概念，设计 2 道练习题（1道基础题，1道深度思考题）。
-3. 绝对忠于原文，如果原文没提，请直接说明。
+1. 在整理好的目录中找出对应章节中用户想寻找的知识内容
+2. 准确定义：提取这段原文中出现的所有重要专业名词，并给出精准定义。
+3. 按照知识框架结构生成内容
+4. 实战练习：针对这些核心概念，设计 2 道练习题（1道基础题，1道深度思考题）。
+5. 绝对忠于原文，如果原文没提，请直接说明。
 
 【参考原文片段】：
 {context}
@@ -117,3 +119,4 @@ if st.session_state.framework:
                         st.error(f"提取出错啦：{e}")
             else:
                 st.warning("请先在上方输入框填写章节名称哦！")
+
