@@ -20,7 +20,7 @@ except Exception:
     pass
 
 st.set_page_config(
-    page_title="CORTEX // 知识提取",
+    page_title="PRISM // 文件解构助手",
     layout="wide",
     initial_sidebar_state="collapsed" if _has_secret_key else "expanded"
 )
@@ -464,7 +464,7 @@ EXTRACT_PROMPT = """你是一位严谨的教研专家。用户是初学者，想
 以下是原文{batch_note}（方括号内为页码）。
 
 ■ 语言：整体中文，专业术语用「中文名 (English Term)」。
-■ 权重（1-5）：core核心度, difficulty难度, connectivity关联度, exam_weight考试权重
+■ 权重（1-5）：core核心度, difficulty难度, connectivity关联度
 ■ 输出：只输出 JSON 数组，直接 [ 开头 ] 结尾，不要其他文字。
 
 每个元素：
